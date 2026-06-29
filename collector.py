@@ -103,8 +103,6 @@ def main():
         except Exception as e:
             notify_error(f"Failed to push to S3: {e}")
 
-        notify_error("It works")
-
         time.sleep(300)
 
 if __name__ == "__main__":
