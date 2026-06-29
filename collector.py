@@ -3,6 +3,7 @@ import os
 import json
 import boto3
 from datetime import datetime, timezone
+from decimal import Decimal
 
 PROXMOX_HOST = "https://192.168.0.15:8006"
 TOKEN_ID = os.environ.get("PROXMOX_TOKEN_ID")
@@ -46,9 +47,29 @@ snapshot = {
     **combined
 }
 
-# Push to DynamoDB
+print (snapshot)
+
+def to_decimal(obj):
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    return obj
+
+snapshot_modified = {k: to_decimal(v) for k, v in snapshot.items()}
+
+# Push to DynamoDB for short term retrieval
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 table = dynamodb.Table('homelab-metrics')
-table.put_item(Item=snapshot)
+table.put_item(Item=snapshot_modified)
 
-print(snapshot)
+# Push to S3 for long-term archival
+s3 = boto3.client('s3', region_name='us-east-1')
+
+ts = datetime.fromisoformat(snapshot['timestamp'])
+key = f"capital/{ts.year}/{ts.month:02d}/{ts.day:02d}/{ts.strftime('%H-%M-%S')}.json"
+
+s3.put_object(
+    Bucket='budhvin-diagnostics-capital-proxmox',
+    Key=key,
+    Body=json.dumps(snapshot, default=str),
+    ContentType='application/json'
+)
