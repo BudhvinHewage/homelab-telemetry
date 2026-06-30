@@ -1,32 +1,51 @@
-# Importing necessary libraries and modules
+"""
+Homelab Telemetry Collector
+
+Collects system metrics from the Proxmox host (capital) and hardware
+temperature sensors, then pushes the combined snapshot to AWS DynamoDB
+(for querying) and S3 (for long-term archival). Runs continuously on a
+5-minute interval. Errors are reported via a Home Assistant webhook.
+"""
+
 import requests
 import os
 import json
 import boto3
 import time
+import urllib3
 
 from datetime import datetime, timezone
 from decimal import Decimal
 
+# --- Configuration ---
 
-# Declaring variables to be used in the program
 PROXMOX_HOST = "https://192.168.0.15:8006"
+TEMPERATURE_ENDPOINT = "http://192.168.0.15:8765/temperature.json"
+HOME_ASSISTANT_WEBHOOK_URL = "https://homeassistant.capital-labs.dev/api/webhook/-bx5tofcNJevp2m_KnWrNrlu9"
+
 TOKEN_ID = os.environ.get("PROXMOX_TOKEN_ID")
 TOKEN_SECRET = os.environ.get("PROXMOX_TOKEN_SECRET")
-snapshot = {}
-home_assistant_trigger_url = "https://homeassistant.capital-labs.dev/api/webhook/-bx5tofcNJevp2m_KnWrNrlu9"
 
-headers = {
+HEADERS = {
     "Authorization": f"PVEAPIToken={TOKEN_ID}={TOKEN_SECRET}"
 }
 
-verify = "/etc/pve/pve-root-ca.pem" if os.path.exists("/etc/pve/pve-root-ca.pem") else False
+COLLECTION_INTERVAL_SECONDS = 300
+
+# Proxmox uses a self-signed certificate on the local network.
+# Verification is disabled since this traffic never leaves the LAN.
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+# --- Data Collection ---
 
 def fetch_capital_metrics():
+    """Fetch system and temperature metrics for the 'capital' node."""
     response = requests.get(
         f"{PROXMOX_HOST}/api2/json/nodes/capital/status",
-        headers=headers,
-        verify=verify
+        headers=HEADERS,
+        verify=False,
+        timeout=10
     )
     data = response.json()['data']
 
@@ -40,31 +59,38 @@ def fetch_capital_metrics():
         'loadaverage': float(data['loadavg'][0]),
     }
 
-    temp_response = requests.get("http://192.168.0.15:8765/temperature.json")
+    temp_response = requests.get(TEMPERATURE_ENDPOINT, timeout=10)
     temperatures = temp_response.json()
 
     combined = {**capital_metrics, **temperatures}
 
-    snapshot_capital = {
+    return {
         'node': 'capital',
         'timestamp': datetime.now(timezone.utc).isoformat(),
         **combined
     }
 
-    return snapshot_capital
+
+# --- Helpers ---
+
+def to_decimal(value):
+    """DynamoDB requires Decimal instead of float for numeric types."""
+    if isinstance(value, float):
+        return Decimal(str(value))
+    return value
 
 
-def to_decimal(obj):
-    if isinstance(obj, float):
-        return Decimal(str(obj))
-    return obj
+# --- Storage ---
 
 def push_to_dynamodb(snapshot):
+    """Write a snapshot to DynamoDB for fast, recent-data queries."""
     dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
     table = dynamodb.Table('homelab-metrics')
     table.put_item(Item=snapshot)
 
+
 def push_to_s3(snapshot):
+    """Archive a snapshot to S3, organized by node/year/month/day."""
     s3 = boto3.client('s3', region_name='us-east-1')
 
     ts = datetime.fromisoformat(snapshot['timestamp'])
@@ -77,11 +103,18 @@ def push_to_s3(snapshot):
         ContentType='application/json'
     )
 
+
+# --- Alerting ---
+
 def notify_error(message):
+    """Send an error notification to Home Assistant via webhook."""
     try:
-        requests.post(home_assistant_trigger_url, json={"message": message})
+        requests.post(HOME_ASSISTANT_WEBHOOK_URL, json={"message": message})
     except Exception as e:
         print(f"Failed to send HA notification: {e}")
+
+
+# --- Main Loop ---
 
 def main():
     while True:
@@ -89,12 +122,12 @@ def main():
             snapshot = fetch_capital_metrics()
         except Exception as e:
             notify_error(f"Failed to fetch metrics from capital: {e}")
-            time.sleep(300)
+            time.sleep(COLLECTION_INTERVAL_SECONDS)
             continue
 
         try:
-            snapshot_modified = {k: to_decimal(v) for k, v in snapshot.items()}
-            push_to_dynamodb(snapshot_modified)
+            snapshot_for_db = {k: to_decimal(v) for k, v in snapshot.items()}
+            push_to_dynamodb(snapshot_for_db)
         except Exception as e:
             notify_error(f"Failed to push to DynamoDB: {e}")
 
@@ -103,7 +136,8 @@ def main():
         except Exception as e:
             notify_error(f"Failed to push to S3: {e}")
 
-        time.sleep(300)
+        time.sleep(COLLECTION_INTERVAL_SECONDS)
+
 
 if __name__ == "__main__":
     main()
