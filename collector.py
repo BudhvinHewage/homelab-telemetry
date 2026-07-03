@@ -36,7 +36,6 @@ COLLECTION_INTERVAL_SECONDS = 300
 # Verification is disabled since this traffic never leaves the LAN.
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-
 # --- Data Collection ---
 
 def fetch_capital_metrics():
@@ -118,21 +117,28 @@ def notify_error(message):
 
 def main():
     while True:
+        print(f"Collecting metrics at {datetime.now(timezone.utc).isoformat()}...")
         try:
+            print("Fetching metrics from capital...")
             snapshot = fetch_capital_metrics()
+            print(f"Snapshot successfully collected: {snapshot['timestamp']}", flush=True)
         except Exception as e:
             notify_error(f"Failed to fetch metrics from capital: {e}")
             time.sleep(COLLECTION_INTERVAL_SECONDS)
             continue
 
         try:
+            print("Pushing snapshot to DynamoDB...")
             snapshot_for_db = {k: to_decimal(v) for k, v in snapshot.items()}
             push_to_dynamodb(snapshot_for_db)
+            print("Snapshot successfully pushed to DynamoDB.", flush=True)
         except Exception as e:
             notify_error(f"Failed to push to DynamoDB: {e}")
 
         try:
+            print("Pushing snapshot to S3...")
             push_to_s3(snapshot)
+            print("Snapshot successfully pushed to S3.", flush=True)
         except Exception as e:
             notify_error(f"Failed to push to S3: {e}")
 
