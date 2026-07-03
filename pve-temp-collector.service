@@ -1,6 +1,0 @@
-[Unit]
-Description=Proxmox Temperature Collector
-
-[Service]
-Type=oneshot
-ExecStart=/bin/bash -c 'python3 /usr/local/sbin/temp_collector.py > /run/pve-temperature.json'
