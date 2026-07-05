@@ -66,6 +66,7 @@ def fetch_capital_metrics():
     return {
         'node': 'capital',
         'timestamp': datetime.now(timezone.utc).isoformat(),
+        'ttl': int(time.time())+(24 * 60 * 60),
         **combined
     }
 
