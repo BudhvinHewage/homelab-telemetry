@@ -30,7 +30,8 @@ HEADERS = {
     "Authorization": f"PVEAPIToken={TOKEN_ID}={TOKEN_SECRET}"
 }
 
-COLLECTION_INTERVAL_SECONDS = 300
+COLLECTION_INTERVAL_SECONDS_DB = 5
+COLLECTION_INTERVAL_SECONDS_S3 = 300
 
 # Proxmox uses a self-signed certificate on the local network.
 # Verification is disabled since this traffic never leaves the LAN.
@@ -117,6 +118,7 @@ def notify_error(message):
 # --- Main Loop ---
 
 def main():
+    last_s3_push_time = 0
     while True:
         print(f"Collecting metrics at {datetime.now(timezone.utc).isoformat()}...")
         try:
@@ -136,14 +138,16 @@ def main():
         except Exception as e:
             notify_error(f"Failed to push to DynamoDB: {e}")
 
-        try:
-            print("Pushing snapshot to S3...")
-            push_to_s3(snapshot)
-            print("Snapshot successfully pushed to S3.", flush=True)
-        except Exception as e:
-            notify_error(f"Failed to push to S3: {e}")
+        if (time.time() - last_s3_push_time) >= COLLECTION_INTERVAL_SECONDS_S3:
+            try:
+                print("Pushing snapshot to S3...")
+                push_to_s3(snapshot)
+                print("Snapshot successfully pushed to S3.", flush=True)
+                last_s3_push_time = time.time()
+            except Exception as e:
+                notify_error(f"Failed to push to S3: {e}")
 
-        time.sleep(COLLECTION_INTERVAL_SECONDS)
+        time.sleep(COLLECTION_INTERVAL_SECONDS_DB)
 
 
 if __name__ == "__main__":

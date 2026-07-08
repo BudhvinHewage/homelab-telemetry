@@ -3,11 +3,19 @@ from decimal import Decimal
 import boto3
 from datetime import datetime, timezone, timedelta
 from boto3.dynamodb.conditions import Key
+from fastapi.middleware.cors import CORSMiddleware
 
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 table = dynamodb.Table('homelab-metrics')
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def convert_decimals(obj):
     if isinstance(obj,dict):

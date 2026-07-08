@@ -1,35 +1,40 @@
+import { useState, useEffect } from "react"
+
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+function CpuDisplay() {
+  const [data, setData] = useState(null)
+
+  useEffect(() => {
+    const fetchData = () => {
+      fetch("http://192.168.0.76:8001/nodes/capital/status")
+        .then(response => response.json())
+        .then(json => setData(json))
+    }
+
+    fetchData()
+
+    const interval = setInterval(fetchData, 5000)
+
+    return () => clearInterval(interval)
+  }, []) 
+
+  if (data == null) {return <p>Loading...</p>}
+
+  return (
+    <div>
+      <p>CPU Usage: {data.cpu}%</p>
+    </div>
+  )
+}
+
 function App() {
   return (
     <div>
       <h1>Homelab Dashboard</h1>
+      <CpuDisplay />
     </div>
   )
 }
-
-
-
-import { useState, useEffect } from "react"
-
-function CpuDisplay() {
-  // useState creates a variable that React watches
-  // when it changes, React re-renders the component
-  const [cpu, setCpu] = useState(null)
-  //     ^         ^         ^
-  //   value   updater   initial value
-
-  // useEffect runs code when the component loads
-  useEffect(() => {
-    fetch("http://your-api/nodes/capital/status")
-      .then(response => response.json())
-      .then(data => setCpu(data.cpu))
-  }, []) // the empty [] means "only run once on load"
-
-  return (
-    <div>
-      <p>CPU: {cpu}%</p>
-    </div>
-  )
-}
-
 
 export default App
