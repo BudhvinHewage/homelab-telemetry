@@ -1,7 +1,5 @@
 import { useState, useEffect } from "react"
 
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
 function CpuDisplay() {
   const [data, setData] = useState(null)
 
