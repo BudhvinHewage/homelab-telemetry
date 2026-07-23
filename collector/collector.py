@@ -37,6 +37,16 @@ COLLECTION_INTERVAL_SECONDS_S3 = 300
 # Verification is disabled since this traffic never leaves the LAN.
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# Error count tracker to avoid spamming Home Assistant with repeated errors.
+retreival_error_count_Capital = 0
+transmission_error_count_DynamoDB = 0
+transmission_error_count_S3 = 0
+
+# Error time threshold to avoid spamming Home Assistant with repeated errors.
+ERROR_NOTIFICATION_THRESHOLD_SECONDS_RETRIEVAL = 300
+ERROR_NOTIFICATION_THRESHOLD_SECONDS_TRANSMISSION_DB = 300
+ERROR_NOTIFICATION_THRESHOLD_SECONDS_TRANSMISSION_S3 = 300
+
 # --- Data Collection ---
 
 def fetch_capital_metrics():
@@ -126,8 +136,10 @@ def main():
             snapshot = fetch_capital_metrics()
             print(f"Snapshot successfully collected: {snapshot['timestamp']}", flush=True)
         except Exception as e:
-            notify_error(f"Failed to fetch metrics from capital: {e}")
-            time.sleep(COLLECTION_INTERVAL_SECONDS)
+            retreival_error_count_Capital += 1
+            if retrieval_error_count_Capital >= 5 and (time.time() - last_s3_push_time) < ERROR_NOTIFICATION_THRESHOLD_SECONDS_RETRIEVAL:
+                notify_error(f"Failed to fetch metrics from capital: {e}")
+                retreival_error_count_Capital = 0  # Reset after notification
             continue
 
         try:
@@ -136,7 +148,10 @@ def main():
             push_to_dynamodb(snapshot_for_db)
             print("Snapshot successfully pushed to DynamoDB.", flush=True)
         except Exception as e:
-            notify_error(f"Failed to push to DynamoDB: {e}")
+            transmission_error_count_DynamoDB += 1
+            if transmission_error_count_DynamoDB >= 5 and (time.time() - last_s3_push_time) < ERROR_NOTIFICATION_THRESHOLD_SECONDS_TRANSMISSION_DB:
+                notify_error(f"Failed to push to DynamoDB: {e}")
+                transmission_error_count_DynamoDB = 0  # Reset after notification
 
         if (time.time() - last_s3_push_time) >= COLLECTION_INTERVAL_SECONDS_S3:
             try:
@@ -145,7 +160,10 @@ def main():
                 print("Snapshot successfully pushed to S3.", flush=True)
                 last_s3_push_time = time.time()
             except Exception as e:
-                notify_error(f"Failed to push to S3: {e}")
+                transmission_error_count_S3 += 1
+                if transmission_error_count_S3 >= 5 and (time.time() - last_s3_push_time) < ERROR_NOTIFICATION_THRESHOLD_SECONDS_TRANSMISSION_S3:
+                    notify_error(f"Failed to push to S3: {e}")
+                    transmission_error_count_S3 = 0  # Reset after notification
 
         time.sleep(COLLECTION_INTERVAL_SECONDS_DB)
 
